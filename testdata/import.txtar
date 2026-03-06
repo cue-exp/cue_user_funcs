@@ -14,7 +14,7 @@ language: {
 }
 deps: {
 	"github.com/cue-exp/cue_user_funcs@v0": {
-		v: "v0.0.1"
+		v: "v0.0.2"
 	}
 }
 -- example.cue --
@@ -33,7 +33,6 @@ major:     semver.#Major(version)
 compare:   semver.#Compare("v1.0.0", "v2.0.0")
 
 // sprig functions
-title:     sprig.#Title("hello world")
 snakecase: sprig.#Snakecase("HelloWorld")
 kebabcase: sprig.#Kebabcase("HelloWorld")
 trunc:     sprig.#Trunc(5, "hello world")
@@ -47,7 +46,6 @@ plural:    sprig.#Plural("item", "items", 3)
     "major": "v1",
     "plural": "items",
     "snakecase": "hello_world",
-    "title": "Hello World",
     "trunc": "hello",
     "version": "v1.2.3-beta+build456"
 }
