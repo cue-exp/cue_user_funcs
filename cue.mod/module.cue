@@ -5,3 +5,13 @@ language: {
 source: {
 	kind: "self"
 }
+deps: {
+	"cue.dev/x/githubactions@v0": {
+		v:       "v0.3.0"
+		default: true
+	}
+	"github.com/cue-lang/tmp/internal/ci@v0": {
+		v:       "v0.0.17"
+		default: true
+	}
+}
