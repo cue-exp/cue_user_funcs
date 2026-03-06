@@ -1,3 +1,4 @@
+env HOME=$WORK/.home
 exec cue_user_funcs export .
 cmp stdout expected.json
 
@@ -6,13 +7,13 @@ cmp stdout expected.json
 
 package example
 
-#semverIsValid:    _ @inject(name="golang.org/x/mod/semver.IsValid")
-#semverCompare:    _ @inject(name="golang.org/x/mod/semver.Compare")
-#semverMajor:      _ @inject(name="golang.org/x/mod/semver.Major")
-#semverMajorMinor: _ @inject(name="golang.org/x/mod/semver.MajorMinor")
-#semverCanonical:  _ @inject(name="golang.org/x/mod/semver.Canonical")
-#semverPrerelease: _ @inject(name="golang.org/x/mod/semver.Prerelease")
-#semverBuild:      _ @inject(name="golang.org/x/mod/semver.Build")
+#semverIsValid:    _ @inject(name="golang.org/x/mod@v0.33.0/semver.IsValid")
+#semverCompare:    _ @inject(name="golang.org/x/mod@v0.33.0/semver.Compare")
+#semverMajor:      _ @inject(name="golang.org/x/mod@v0.33.0/semver.Major")
+#semverMajorMinor: _ @inject(name="golang.org/x/mod@v0.33.0/semver.MajorMinor")
+#semverCanonical:  _ @inject(name="golang.org/x/mod@v0.33.0/semver.Canonical")
+#semverPrerelease: _ @inject(name="golang.org/x/mod@v0.33.0/semver.Prerelease")
+#semverBuild:      _ @inject(name="golang.org/x/mod@v0.33.0/semver.Build")
 
 version: "v1.2.3-beta+build456"
 

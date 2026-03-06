@@ -1,16 +1,23 @@
 package main
 
 import (
-	"encoding/json"
+	"embed"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"syscall"
+	"text/template"
 
-	"cuelang.org/go/cue"
-	"cuelang.org/go/cue/cuecontext"
+	"cuelang.org/go/cue/ast"
+	"cuelang.org/go/cue/build"
 	"cuelang.org/go/cue/load"
-	"github.com/myitcvscratch/cue_user_funcs/sprig"
-	"golang.org/x/mod/semver"
 )
+
+//go:embed _template/main.go
+var templateFS embed.FS
 
 func main() {
 	os.Exit(main1())
@@ -30,119 +37,14 @@ func run() error {
 	}
 	dir := os.Args[2]
 
-	j := cuecontext.NewInjector()
-	j.AllowAll()
-	ctx := cuecontext.New(cuecontext.Inject(j))
+	// Make dir absolute so the generated binary can find it.
+	absDir, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
 
-	// Register semver functions as user-provided functions.
-	j.Register("golang.org/x/mod/semver.IsValid", cue.PureFunc1(func(v string) (bool, error) {
-		return semver.IsValid(v), nil
-	}, cue.Name("golang.org/x/mod/semver.IsValid")))
-
-	j.Register("golang.org/x/mod/semver.Compare", cue.PureFunc2(func(v, w string) (int, error) {
-		return semver.Compare(v, w), nil
-	}, cue.Name("golang.org/x/mod/semver.Compare")))
-
-	j.Register("golang.org/x/mod/semver.Major", cue.PureFunc1(func(v string) (string, error) {
-		return semver.Major(v), nil
-	}, cue.Name("golang.org/x/mod/semver.Major")))
-
-	j.Register("golang.org/x/mod/semver.MajorMinor", cue.PureFunc1(func(v string) (string, error) {
-		return semver.MajorMinor(v), nil
-	}, cue.Name("golang.org/x/mod/semver.MajorMinor")))
-
-	j.Register("golang.org/x/mod/semver.Canonical", cue.PureFunc1(func(v string) (string, error) {
-		return semver.Canonical(v), nil
-	}, cue.Name("golang.org/x/mod/semver.Canonical")))
-
-	j.Register("golang.org/x/mod/semver.Prerelease", cue.PureFunc1(func(v string) (string, error) {
-		return semver.Prerelease(v), nil
-	}, cue.Name("golang.org/x/mod/semver.Prerelease")))
-
-	j.Register("golang.org/x/mod/semver.Build", cue.PureFunc1(func(v string) (string, error) {
-		return semver.Build(v), nil
-	}, cue.Name("golang.org/x/mod/semver.Build")))
-
-	// Register sprig string functions.
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Title", cue.PureFunc1(func(s string) (string, error) {
-		return sprig.Title(s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Title")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Untitle", cue.PureFunc1(func(s string) (string, error) {
-		return sprig.Untitle(s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Untitle")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Substr", cue.PureFunc3(func(start, end int, s string) (string, error) {
-		return sprig.Substr(start, end, s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Substr")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Nospace", cue.PureFunc1(func(s string) (string, error) {
-		return sprig.Nospace(s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Nospace")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Trunc", cue.PureFunc2(func(n int, s string) (string, error) {
-		return sprig.Trunc(n, s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Trunc")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Abbrev", cue.PureFunc2(func(width int, s string) (string, error) {
-		return sprig.Abbrev(width, s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Abbrev")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Abbrevboth", cue.PureFunc3(func(left, right int, s string) (string, error) {
-		return sprig.Abbrevboth(left, right, s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Abbrevboth")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Initials", cue.PureFunc1(func(s string) (string, error) {
-		return sprig.Initials(s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Initials")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Wrap", cue.PureFunc2(func(width int, s string) (string, error) {
-		return sprig.Wrap(width, s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Wrap")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.WrapWith", cue.PureFunc3(func(width int, sep, s string) (string, error) {
-		return sprig.WrapWith(width, sep, s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.WrapWith")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Indent", cue.PureFunc2(func(spaces int, s string) (string, error) {
-		return sprig.Indent(spaces, s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Indent")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Nindent", cue.PureFunc2(func(spaces int, s string) (string, error) {
-		return sprig.Nindent(spaces, s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Nindent")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Snakecase", cue.PureFunc1(func(s string) (string, error) {
-		return sprig.Snakecase(s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Snakecase")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Camelcase", cue.PureFunc1(func(s string) (string, error) {
-		return sprig.Camelcase(s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Camelcase")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Kebabcase", cue.PureFunc1(func(s string) (string, error) {
-		return sprig.Kebabcase(s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Kebabcase")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Swapcase", cue.PureFunc1(func(s string) (string, error) {
-		return sprig.Swapcase(s), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Swapcase")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Plural", cue.PureFunc3(func(one, many string, count int) (string, error) {
-		return sprig.Plural(one, many, count), nil
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Plural")))
-
-	// Register sprig semver functions.
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.SemverCompare", cue.PureFunc2(func(constraint, version string) (bool, error) {
-		return sprig.SemverCompare(constraint, version)
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.SemverCompare")))
-
-	j.Register("github.com/myitcvscratch/cue_user_funcs/sprig.Semver", cue.PureFunc1(func(version string) (*sprig.SemverVersion, error) {
-		return sprig.Semver(version)
-	}, cue.Name("github.com/myitcvscratch/cue_user_funcs/sprig.Semver")))
-
-	// Load the CUE package from the specified directory.
-	cfg := &load.Config{Dir: dir}
+	// Load the CUE package to discover @inject attributes.
+	cfg := &load.Config{Dir: absDir}
 	instances := load.Instances([]string{"."}, cfg)
 	if len(instances) == 0 {
 		return fmt.Errorf("no instances found in %s", dir)
@@ -152,20 +54,295 @@ func run() error {
 		return inst.Err
 	}
 
-	v := ctx.BuildInstance(inst)
-	if err := v.Err(); err != nil {
-		return err
+	// Walk all instances (including transitive deps) to find @inject names.
+	injectNames := collectInjectNames(inst)
+	if len(injectNames) == 0 {
+		return fmt.Errorf("no @inject attributes found")
 	}
-	if err := v.Validate(cue.Concrete(true)); err != nil {
+
+	// Parse inject names into module requirements and function references.
+	funcs, err := parseInjectNames(injectNames)
+	if err != nil {
 		return err
 	}
 
-	var out any
-	if err := v.Decode(&out); err != nil {
+	// Create a temporary directory for the generated module.
+	tmpDir, err := os.MkdirTemp("", "cue-user-funcs-*")
+	if err != nil {
+		return err
+	}
+	defer os.RemoveAll(tmpDir)
+
+	// Write the template main.go.
+	tmplMain, err := templateFS.ReadFile("_template/main.go")
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(filepath.Join(tmpDir, "main.go"), tmplMain, 0o666); err != nil {
 		return err
 	}
 
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "    ")
-	return enc.Encode(out)
+	// Write go.mod.
+	if err := writeGoMod(tmpDir, funcs); err != nil {
+		return err
+	}
+
+	// Generate register.go with the function map.
+	if err := writeRegisterFile(tmpDir, funcs); err != nil {
+		return err
+	}
+
+	// Run go mod tidy.
+	if err := goCmd(tmpDir, "mod", "tidy"); err != nil {
+		return fmt.Errorf("go mod tidy: %w", err)
+	}
+
+	// Build the generated module.
+	binPath := filepath.Join(tmpDir, "cue-user-funcs")
+	if err := goCmd(tmpDir, "build", "-o", binPath, "."); err != nil {
+		return fmt.Errorf("go build: %w", err)
+	}
+
+	// Exec the built binary, replacing the current process.
+	args := []string{binPath, "export", absDir}
+	return syscall.Exec(binPath, args, os.Environ())
+}
+
+// collectInjectNames walks the instance and its transitive imports,
+// returning all @inject name values from files that have @extern(inject).
+func collectInjectNames(root *build.Instance) []string {
+	var names []string
+	seen := map[string]bool{}
+	var walk func(inst *build.Instance)
+	walk = func(inst *build.Instance) {
+		if seen[inst.ImportPath] {
+			return
+		}
+		seen[inst.ImportPath] = true
+
+		for _, f := range inst.Files {
+			names = append(names, extractInjectNames(f)...)
+		}
+		for _, imp := range inst.Imports {
+			walk(imp)
+		}
+	}
+	walk(root)
+	return names
+}
+
+// extractInjectNames returns all @inject name values from a file
+// that has a file-level @extern(inject) attribute.
+func extractInjectNames(f *ast.File) []string {
+	// Check for file-level @extern(inject).
+	hasExtern := false
+	for _, d := range f.Decls {
+		attr, ok := d.(*ast.Attribute)
+		if !ok {
+			continue
+		}
+		key, body := attr.Split()
+		if key == "extern" && body == "inject" {
+			hasExtern = true
+			break
+		}
+	}
+	if !hasExtern {
+		return nil
+	}
+
+	// Collect @inject names from fields.
+	var names []string
+	for _, d := range f.Decls {
+		field, ok := d.(*ast.Field)
+		if !ok {
+			continue
+		}
+		for _, a := range field.Attrs {
+			key, body := a.Split()
+			if key != "inject" {
+				continue
+			}
+			name := parseInjectAttrName(body)
+			if name != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
+}
+
+// parseInjectAttrName extracts the name value from an @inject attribute body
+// like `name="golang.org/x/mod@v0.33.0/semver.IsValid"`.
+func parseInjectAttrName(body string) string {
+	// Body is: name="value"
+	prefix := `name="`
+	if !strings.HasPrefix(body, prefix) {
+		return ""
+	}
+	rest := body[len(prefix):]
+	end := strings.Index(rest, `"`)
+	if end < 0 {
+		return ""
+	}
+	return rest[:end]
+}
+
+// funcRef represents a parsed inject name.
+type funcRef struct {
+	// InjectName is the full inject name, e.g. "golang.org/x/mod@v0.33.0/semver.IsValid".
+	InjectName string
+	// Module is the Go module path, e.g. "golang.org/x/mod".
+	Module string
+	// Version is the module version, e.g. "v0.33.0".
+	Version string
+	// ImportPath is the full Go import path, e.g. "golang.org/x/mod/semver".
+	ImportPath string
+	// FuncName is the function name, e.g. "IsValid".
+	FuncName string
+}
+
+// injectNameRe matches "module@version/subpath.Func" or "module@version.Func" (no subpath).
+var injectNameRe = regexp.MustCompile(`^(.+)@(v[^/]+?)(?:/(.+))?\.([A-Z]\w*)$`)
+
+func parseInjectNames(names []string) ([]funcRef, error) {
+	var funcs []funcRef
+	for _, name := range names {
+		m := injectNameRe.FindStringSubmatch(name)
+		if m == nil {
+			return nil, fmt.Errorf("cannot parse inject name %q", name)
+		}
+		module := m[1]
+		version := m[2]
+		subpath := m[3]
+		funcName := m[4]
+
+		importPath := module
+		if subpath != "" {
+			importPath = module + "/" + subpath
+		}
+
+		funcs = append(funcs, funcRef{
+			InjectName: name,
+			Module:     module,
+			Version:    version,
+			ImportPath: importPath,
+			FuncName:   funcName,
+		})
+	}
+	return funcs, nil
+}
+
+func writeGoMod(tmpDir string, funcs []funcRef) error {
+	goMod := `module _cue_user_funcs_generated
+
+go 1.25.0
+
+require cuelang.org/go v0.16.0
+
+replace cuelang.org/go v0.16.0 => github.com/myitcvforks/cue v0.0.0-20260306105357-d03fc6701a45
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), []byte(goMod), 0o666); err != nil {
+		return err
+	}
+
+	// Add a require for each unique module@version.
+	seen := map[string]bool{}
+	for _, f := range funcs {
+		key := f.Module + "@" + f.Version
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if err := goCmd(tmpDir, "mod", "edit", "-require="+key); err != nil {
+			return fmt.Errorf("go mod edit -require=%s: %w", key, err)
+		}
+	}
+	return nil
+}
+
+var registerTmpl = template.Must(template.New("register").Parse(`package main
+
+import (
+{{- range .Imports}}
+	{{.Alias}} "{{.Path}}"
+{{- end}}
+)
+
+func init() {
+	funcsToRegister = map[string]any{
+{{- range .Funcs}}
+		"{{.InjectName}}": {{.ImportAlias}}.{{.FuncName}},
+{{- end}}
+	}
+}
+`))
+
+type registerData struct {
+	Imports []importEntry
+	Funcs   []registerEntry
+}
+
+type importEntry struct {
+	Alias string
+	Path  string
+}
+
+type registerEntry struct {
+	InjectName  string
+	ImportAlias string
+	FuncName    string
+}
+
+func writeRegisterFile(tmpDir string, funcs []funcRef) error {
+	// Assign unique import aliases.
+	importAliases := map[string]string{} // importPath -> alias
+	aliasCounter := 0
+	for _, f := range funcs {
+		if _, ok := importAliases[f.ImportPath]; ok {
+			continue
+		}
+		aliasCounter++
+		importAliases[f.ImportPath] = fmt.Sprintf("pkg%d", aliasCounter)
+	}
+
+	var imports []importEntry
+	seen := map[string]bool{}
+	for _, f := range funcs {
+		if seen[f.ImportPath] {
+			continue
+		}
+		seen[f.ImportPath] = true
+		imports = append(imports, importEntry{
+			Alias: importAliases[f.ImportPath],
+			Path:  f.ImportPath,
+		})
+	}
+
+	var entries []registerEntry
+	for _, f := range funcs {
+		entries = append(entries, registerEntry{
+			InjectName:  f.InjectName,
+			ImportAlias: importAliases[f.ImportPath],
+			FuncName:    f.FuncName,
+		})
+	}
+
+	out, err := os.Create(filepath.Join(tmpDir, "register.go"))
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	return registerTmpl.Execute(out, registerData{
+		Imports: imports,
+		Funcs:   entries,
+	})
+}
+
+func goCmd(dir string, args ...string) error {
+	cmd := exec.Command("go", args...)
+	cmd.Dir = dir
+	cmd.Stdout = os.Stderr
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
 }
