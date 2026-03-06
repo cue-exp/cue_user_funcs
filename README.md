@@ -105,3 +105,4 @@ CI configuration lives in `internal/ci/` as CUE source of truth, generating
 ```
 go generate ./internal/ci/...
 ```
+
