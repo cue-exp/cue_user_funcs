@@ -12,10 +12,15 @@ import (
 )
 
 func main() {
+	os.Exit(main1())
+}
+
+func main1() int {
 	if err := run(); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func run() error {

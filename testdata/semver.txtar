@@ -1,3 +1,7 @@
+exec cue_user_funcs export .
+cmp stdout expected.json
+
+-- example.cue --
 @extern(inject)
 
 package example
@@ -25,4 +29,20 @@ versions: {
 	a: "v2.0.0"
 	b: "v1.9.0"
 	aIsNewer: #semverCompare(a, b) > 0
+}
+-- expected.json --
+{
+    "build": "+build456",
+    "canonical": "v1.2.3-beta",
+    "compare": -1,
+    "isValid": true,
+    "major": "v1",
+    "majorMinor": "v1.2",
+    "prerelease": "-beta",
+    "version": "v1.2.3-beta+build456",
+    "versions": {
+        "a": "v2.0.0",
+        "aIsNewer": true,
+        "b": "v1.9.0"
+    }
 }

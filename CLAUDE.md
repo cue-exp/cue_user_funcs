@@ -37,8 +37,7 @@ names without the `command` prefix.
 
 - `main.go` - Entry point. Registers semver functions via the injector API,
   loads CUE packages, outputs JSON.
-- `testdata/example.cue` - Sample CUE package demonstrating all semver
-  functions.
+- `testdata/` - Testscript txtar files.
 - `go.mod` - Module definition with replace directive pointing to the CUE fork.
 
 ## Key APIs used
@@ -66,3 +65,4 @@ names without the `command` prefix.
 - Injected functions use hidden definitions (e.g. `#semverIsValid`) in CUE.
 - Commit messages: subject line under 50 characters, body explaining the "why."
 - Every commit must pass `go test ./...`.
+- Do not add Co-Authored-By trailers to commit messages.
