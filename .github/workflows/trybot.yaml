@@ -1,15 +1,11 @@
 # Code generated internal/ci/base/write.cue; DO NOT EDIT.
 
-name: TryBot
 "on":
   push:
     branches:
       - ci/test
       - main
   pull_request: {}
-  schedule:
-    - cron: 0 2 * * *
-  workflow_dispatch: {}
 jobs:
   test:
     defaults:
