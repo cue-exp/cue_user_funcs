@@ -1,0 +1,158 @@
+// Package sprig provides Sprig-compatible string and semver functions.
+package sprig
+
+import (
+	"strings"
+
+	"github.com/Masterminds/goutils"
+	sv "github.com/Masterminds/semver/v3"
+	"github.com/huandu/xstrings"
+)
+
+// Title returns a copy of s with the first letter of each word capitalized.
+func Title(s string) string {
+	return strings.Title(s) //nolint:staticcheck // matches Sprig behavior
+}
+
+// Untitle returns a copy of s with the first letter of each word lowercased.
+func Untitle(s string) string {
+	return goutils.Uncapitalize(s)
+}
+
+// Substr returns the substring of s from byte index start to end.
+func Substr(start, end int, s string) string {
+	if start < 0 {
+		return s[:end]
+	}
+	if end < 0 || end > len(s) {
+		return s[start:]
+	}
+	return s[start:end]
+}
+
+// Nospace returns s with all whitespace characters removed.
+func Nospace(s string) string {
+	return goutils.DeleteWhiteSpace(s)
+}
+
+// Trunc truncates s to c bytes.
+func Trunc(n int, s string) string {
+	if n < 0 && len(s)+n > 0 {
+		return s[len(s)+n:]
+	}
+	if n >= 0 && len(s) > n {
+		return s[:n]
+	}
+	return s
+}
+
+// Abbrev abbreviates s to at most width characters, ending with "...".
+func Abbrev(width int, s string) string {
+	if width < 4 {
+		return s
+	}
+	r, _ := goutils.Abbreviate(s, width)
+	return r
+}
+
+// Abbrevboth abbreviates s from both sides.
+func Abbrevboth(left, right int, s string) string {
+	if right < 4 || left > 0 && right < 7 {
+		return s
+	}
+	r, _ := goutils.AbbreviateFull(s, left, right)
+	return r
+}
+
+// Initials returns the first letter of each whitespace-delimited word in s.
+func Initials(s string) string {
+	return goutils.Initials(s)
+}
+
+// Wrap wraps s at the specified width using newlines.
+func Wrap(width int, s string) string {
+	return goutils.Wrap(s, width)
+}
+
+// WrapWith wraps s at the specified width using the given separator string.
+func WrapWith(width int, sep, s string) string {
+	return goutils.WrapCustom(s, width, sep, true)
+}
+
+// Indent prepends the given number of spaces to every line in s.
+func Indent(spaces int, s string) string {
+	pad := strings.Repeat(" ", spaces)
+	return pad + strings.ReplaceAll(s, "\n", "\n"+pad)
+}
+
+// Nindent is like Indent but prepends a newline before the indented text.
+func Nindent(spaces int, s string) string {
+	return "\n" + Indent(spaces, s)
+}
+
+// Snakecase converts s to snake_case.
+func Snakecase(s string) string {
+	return xstrings.ToSnakeCase(s)
+}
+
+// Camelcase converts s to PascalCase (matching Sprig's camelcase behavior).
+func Camelcase(s string) string {
+	return xstrings.ToPascalCase(s)
+}
+
+// Kebabcase converts s to kebab-case.
+func Kebabcase(s string) string {
+	return xstrings.ToKebabCase(s)
+}
+
+// Swapcase swaps the case of each letter in s.
+func Swapcase(s string) string {
+	return goutils.SwapCase(s)
+}
+
+// Plural returns one if count is 1, otherwise many.
+func Plural(one, many string, count int) string {
+	if count == 1 {
+		return one
+	}
+	return many
+}
+
+// SemverVersion holds the parsed components of a semantic version string.
+type SemverVersion struct {
+	Major      uint64 `json:"major"`
+	Minor      uint64 `json:"minor"`
+	Patch      uint64 `json:"patch"`
+	Prerelease string `json:"prerelease,omitempty"`
+	Metadata   string `json:"metadata,omitempty"`
+	Original   string `json:"original"`
+}
+
+// SemverCompare tests whether version satisfies the given constraint.
+func SemverCompare(constraint, version string) (bool, error) {
+	c, err := sv.NewConstraint(constraint)
+	if err != nil {
+		return false, err
+	}
+	v, err := sv.NewVersion(version)
+	if err != nil {
+		return false, err
+	}
+	return c.Check(v), nil
+}
+
+// Semver parses a semantic version string and returns its components.
+func Semver(version string) (*SemverVersion, error) {
+	v, err := sv.NewVersion(version)
+	if err != nil {
+		return nil, err
+	}
+	return &SemverVersion{
+		Major:      v.Major(),
+		Minor:      v.Minor(),
+		Patch:      v.Patch(),
+		Prerelease: v.Prerelease(),
+		Metadata:   v.Metadata(),
+		Original:   v.Original(),
+	}, nil
+}

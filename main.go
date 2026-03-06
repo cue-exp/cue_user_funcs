@@ -8,6 +8,7 @@ import (
 	"cuelang.org/go/cue"
 	"cuelang.org/go/cue/cuecontext"
 	"cuelang.org/go/cue/load"
+	"example.com/cue-user-funcs/sprig"
 	"golang.org/x/mod/semver"
 )
 
@@ -61,6 +62,84 @@ func run() error {
 	j.Register("golang.org/x/mod/semver.Build", cue.PureFunc1(func(v string) (string, error) {
 		return semver.Build(v), nil
 	}, cue.Name("golang.org/x/mod/semver.Build")))
+
+	// Register sprig string functions.
+	j.Register("sprig.Title", cue.PureFunc1(func(s string) (string, error) {
+		return sprig.Title(s), nil
+	}, cue.Name("sprig.Title")))
+
+	j.Register("sprig.Untitle", cue.PureFunc1(func(s string) (string, error) {
+		return sprig.Untitle(s), nil
+	}, cue.Name("sprig.Untitle")))
+
+	j.Register("sprig.Substr", cue.PureFunc3(func(start, end int, s string) (string, error) {
+		return sprig.Substr(start, end, s), nil
+	}, cue.Name("sprig.Substr")))
+
+	j.Register("sprig.Nospace", cue.PureFunc1(func(s string) (string, error) {
+		return sprig.Nospace(s), nil
+	}, cue.Name("sprig.Nospace")))
+
+	j.Register("sprig.Trunc", cue.PureFunc2(func(n int, s string) (string, error) {
+		return sprig.Trunc(n, s), nil
+	}, cue.Name("sprig.Trunc")))
+
+	j.Register("sprig.Abbrev", cue.PureFunc2(func(width int, s string) (string, error) {
+		return sprig.Abbrev(width, s), nil
+	}, cue.Name("sprig.Abbrev")))
+
+	j.Register("sprig.Abbrevboth", cue.PureFunc3(func(left, right int, s string) (string, error) {
+		return sprig.Abbrevboth(left, right, s), nil
+	}, cue.Name("sprig.Abbrevboth")))
+
+	j.Register("sprig.Initials", cue.PureFunc1(func(s string) (string, error) {
+		return sprig.Initials(s), nil
+	}, cue.Name("sprig.Initials")))
+
+	j.Register("sprig.Wrap", cue.PureFunc2(func(width int, s string) (string, error) {
+		return sprig.Wrap(width, s), nil
+	}, cue.Name("sprig.Wrap")))
+
+	j.Register("sprig.WrapWith", cue.PureFunc3(func(width int, sep, s string) (string, error) {
+		return sprig.WrapWith(width, sep, s), nil
+	}, cue.Name("sprig.WrapWith")))
+
+	j.Register("sprig.Indent", cue.PureFunc2(func(spaces int, s string) (string, error) {
+		return sprig.Indent(spaces, s), nil
+	}, cue.Name("sprig.Indent")))
+
+	j.Register("sprig.Nindent", cue.PureFunc2(func(spaces int, s string) (string, error) {
+		return sprig.Nindent(spaces, s), nil
+	}, cue.Name("sprig.Nindent")))
+
+	j.Register("sprig.Snakecase", cue.PureFunc1(func(s string) (string, error) {
+		return sprig.Snakecase(s), nil
+	}, cue.Name("sprig.Snakecase")))
+
+	j.Register("sprig.Camelcase", cue.PureFunc1(func(s string) (string, error) {
+		return sprig.Camelcase(s), nil
+	}, cue.Name("sprig.Camelcase")))
+
+	j.Register("sprig.Kebabcase", cue.PureFunc1(func(s string) (string, error) {
+		return sprig.Kebabcase(s), nil
+	}, cue.Name("sprig.Kebabcase")))
+
+	j.Register("sprig.Swapcase", cue.PureFunc1(func(s string) (string, error) {
+		return sprig.Swapcase(s), nil
+	}, cue.Name("sprig.Swapcase")))
+
+	j.Register("sprig.Plural", cue.PureFunc3(func(one, many string, count int) (string, error) {
+		return sprig.Plural(one, many, count), nil
+	}, cue.Name("sprig.Plural")))
+
+	// Register sprig semver functions.
+	j.Register("sprig.SemverCompare", cue.PureFunc2(func(constraint, version string) (bool, error) {
+		return sprig.SemverCompare(constraint, version)
+	}, cue.Name("sprig.SemverCompare")))
+
+	j.Register("sprig.Semver", cue.PureFunc1(func(version string) (*sprig.SemverVersion, error) {
+		return sprig.Semver(version)
+	}, cue.Name("sprig.Semver")))
 
 	// Load the CUE package from the specified directory.
 	cfg := &load.Config{Dir: dir}

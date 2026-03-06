@@ -4,6 +4,9 @@ go 1.25.0
 
 require (
 	cuelang.org/go v0.16.0
+	github.com/Masterminds/goutils v1.1.1
+	github.com/Masterminds/semver/v3 v3.4.0
+	github.com/huandu/xstrings v1.5.0
 	github.com/rogpeppe/go-internal v1.14.1
 	golang.org/x/mod v0.33.0
 )
