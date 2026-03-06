@@ -34,33 +34,33 @@ func run() error {
 	ctx := cuecontext.New(cuecontext.Inject(j))
 
 	// Register semver functions as user-provided functions.
-	j.Register("semver.IsValid", cue.PureFunc1(func(v string) (bool, error) {
+	j.Register("golang.org/x/mod/semver.IsValid", cue.PureFunc1(func(v string) (bool, error) {
 		return semver.IsValid(v), nil
-	}, cue.Name("semver.IsValid")))
+	}, cue.Name("golang.org/x/mod/semver.IsValid")))
 
-	j.Register("semver.Compare", cue.PureFunc2(func(v, w string) (int, error) {
+	j.Register("golang.org/x/mod/semver.Compare", cue.PureFunc2(func(v, w string) (int, error) {
 		return semver.Compare(v, w), nil
-	}, cue.Name("semver.Compare")))
+	}, cue.Name("golang.org/x/mod/semver.Compare")))
 
-	j.Register("semver.Major", cue.PureFunc1(func(v string) (string, error) {
+	j.Register("golang.org/x/mod/semver.Major", cue.PureFunc1(func(v string) (string, error) {
 		return semver.Major(v), nil
-	}, cue.Name("semver.Major")))
+	}, cue.Name("golang.org/x/mod/semver.Major")))
 
-	j.Register("semver.MajorMinor", cue.PureFunc1(func(v string) (string, error) {
+	j.Register("golang.org/x/mod/semver.MajorMinor", cue.PureFunc1(func(v string) (string, error) {
 		return semver.MajorMinor(v), nil
-	}, cue.Name("semver.MajorMinor")))
+	}, cue.Name("golang.org/x/mod/semver.MajorMinor")))
 
-	j.Register("semver.Canonical", cue.PureFunc1(func(v string) (string, error) {
+	j.Register("golang.org/x/mod/semver.Canonical", cue.PureFunc1(func(v string) (string, error) {
 		return semver.Canonical(v), nil
-	}, cue.Name("semver.Canonical")))
+	}, cue.Name("golang.org/x/mod/semver.Canonical")))
 
-	j.Register("semver.Prerelease", cue.PureFunc1(func(v string) (string, error) {
+	j.Register("golang.org/x/mod/semver.Prerelease", cue.PureFunc1(func(v string) (string, error) {
 		return semver.Prerelease(v), nil
-	}, cue.Name("semver.Prerelease")))
+	}, cue.Name("golang.org/x/mod/semver.Prerelease")))
 
-	j.Register("semver.Build", cue.PureFunc1(func(v string) (string, error) {
+	j.Register("golang.org/x/mod/semver.Build", cue.PureFunc1(func(v string) (string, error) {
 		return semver.Build(v), nil
-	}, cue.Name("semver.Build")))
+	}, cue.Name("golang.org/x/mod/semver.Build")))
 
 	// Load the CUE package from the specified directory.
 	cfg := &load.Config{Dir: dir}

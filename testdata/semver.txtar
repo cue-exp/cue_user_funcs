@@ -6,13 +6,13 @@ cmp stdout expected.json
 
 package example
 
-#semverIsValid:    _ @inject(name="semver.IsValid")
-#semverCompare:    _ @inject(name="semver.Compare")
-#semverMajor:      _ @inject(name="semver.Major")
-#semverMajorMinor: _ @inject(name="semver.MajorMinor")
-#semverCanonical:  _ @inject(name="semver.Canonical")
-#semverPrerelease: _ @inject(name="semver.Prerelease")
-#semverBuild:      _ @inject(name="semver.Build")
+#semverIsValid:    _ @inject(name="golang.org/x/mod/semver.IsValid")
+#semverCompare:    _ @inject(name="golang.org/x/mod/semver.Compare")
+#semverMajor:      _ @inject(name="golang.org/x/mod/semver.Major")
+#semverMajorMinor: _ @inject(name="golang.org/x/mod/semver.MajorMinor")
+#semverCanonical:  _ @inject(name="golang.org/x/mod/semver.Canonical")
+#semverPrerelease: _ @inject(name="golang.org/x/mod/semver.Prerelease")
+#semverBuild:      _ @inject(name="golang.org/x/mod/semver.Build")
 
 version: "v1.2.3-beta+build456"
 
