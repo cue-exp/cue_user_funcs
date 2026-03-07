@@ -351,6 +351,7 @@ func writeStubFile(tmpDir string, funcs []funcRef) error {
 // funcSig holds the parsed signature of a Go function.
 type funcSig struct {
 	Params       []string // Go type names, e.g. ["string", "int"]
+	ReturnType   string   // first return type name, e.g. "string", "bool", "*SemverVersion"
 	ReturnsError bool     // true if the last return value is error
 }
 
@@ -433,6 +434,11 @@ func findFuncSig(pkg *packages.Package, funcName string) (*funcSig, error) {
 				if ident, ok := last.Type.(*goast.Ident); ok && ident.Name == "error" {
 					sig.ReturnsError = true
 				}
+				retType, err := typeExprStr(results[0].Type)
+				if err != nil {
+					return nil, fmt.Errorf("function %s return type: %w", funcName, err)
+				}
+				sig.ReturnType = retType
 			}
 			return sig, nil
 		}
@@ -458,23 +464,26 @@ func typeExprStr(expr goast.Expr) (string, error) {
 	}
 }
 
-// convExpr returns a Go expression that converts a PureFunc any-typed
-// parameter to the concrete Go type the function expects.
-func convExpr(paramName, goType string) (string, error) {
-	switch goType {
-	case "string":
-		return paramName + ".(string)", nil
-	case "bool":
-		return paramName + ".(bool)", nil
-	case "int":
-		return "int(" + paramName + ".(int64))", nil
-	case "int64":
-		return paramName + ".(int64)", nil
-	case "float64":
-		return paramName + ".(float64)", nil
-	default:
-		return "", fmt.Errorf("unsupported parameter type %q", goType)
+// builtinTypes is the set of Go predeclared type names.
+var builtinTypes = map[string]bool{
+	"bool": true, "byte": true, "rune": true,
+	"string": true, "error": true, "any": true,
+	"int": true, "int8": true, "int16": true, "int32": true, "int64": true,
+	"uint": true, "uint8": true, "uint16": true, "uint32": true, "uint64": true, "uintptr": true,
+	"float32": true, "float64": true,
+	"complex64": true, "complex128": true,
+}
+
+// qualifyType prefixes non-builtin type names with the import alias.
+// For example, "*SemverVersion" with alias "pkg1" becomes "*pkg1.SemverVersion".
+func qualifyType(typeStr, alias string) string {
+	if strings.HasPrefix(typeStr, "*") {
+		return "*" + qualifyType(typeStr[1:], alias)
 	}
+	if builtinTypes[typeStr] {
+		return typeStr
+	}
+	return alias + "." + typeStr
 }
 
 var registerTmpl = template.Must(template.New("register").Parse(`package main
@@ -489,7 +498,7 @@ import (
 
 func registerAll(j *cuecontext.Injector) {
 {{- range .Funcs}}
-	j.Register("{{.InjectName}}", cue.PureFunc{{.Arity}}(func({{.ParamDecl}}) (any, error) {
+	j.Register("{{.InjectName}}", cue.PureFunc{{.Arity}}(func({{.ParamDecl}}) ({{.ReturnType}}, error) {
 {{- if .ReturnsError}}
 		return {{.CallExpr}}
 {{- else}}
@@ -514,6 +523,7 @@ type registerFuncEntry struct {
 	InjectName   string
 	Arity        int
 	ParamDecl    string
+	ReturnType   string
 	CallExpr     string
 	ReturnsError bool
 }
@@ -548,29 +558,22 @@ func buildRegisterData(funcs []funcRef, sigs map[string]*funcSig) (*registerData
 		sig := sigs[f.InjectName]
 		alias := importAliases[f.ImportPath]
 
-		// Build parameter declaration, e.g. "a0, a1 any".
-		paramNames := make([]string, len(sig.Params))
-		for i := range sig.Params {
-			paramNames[i] = fmt.Sprintf("a%d", i)
-		}
-		paramDecl := strings.Join(paramNames, ", ") + " any"
-
-		// Build call expression with typed conversions,
-		// e.g. "pkg1.IsValid(a0.(string))".
-		argExprs := make([]string, len(sig.Params))
+		// Build typed parameter declaration, e.g. "a0 string, a1 int".
+		paramParts := make([]string, len(sig.Params))
+		argNames := make([]string, len(sig.Params))
 		for i, paramType := range sig.Params {
-			expr, err := convExpr(fmt.Sprintf("a%d", i), paramType)
-			if err != nil {
-				return nil, fmt.Errorf("function %s param %d: %w", f.InjectName, i, err)
-			}
-			argExprs[i] = expr
+			name := fmt.Sprintf("a%d", i)
+			paramParts[i] = name + " " + paramType
+			argNames[i] = name
 		}
-		callExpr := fmt.Sprintf("%s.%s(%s)", alias, f.FuncName, strings.Join(argExprs, ", "))
+		paramDecl := strings.Join(paramParts, ", ")
+		callExpr := fmt.Sprintf("%s.%s(%s)", alias, f.FuncName, strings.Join(argNames, ", "))
 
 		entries = append(entries, registerFuncEntry{
 			InjectName:   f.InjectName,
 			Arity:        len(sig.Params),
 			ParamDecl:    paramDecl,
+			ReturnType:   qualifyType(sig.ReturnType, alias),
 			CallExpr:     callExpr,
 			ReturnsError: sig.ReturnsError,
 		})
