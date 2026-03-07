@@ -49,10 +49,11 @@ names without the `command` prefix.
 
 ## Project structure
 
-- `main.go` - Entry point. Discovers @inject attrs, generates temp Go module,
-  builds and execs it.
-- `_template/main.go` - Embedded template for the generated program with
-  reflection-based function registration.
+- `main.go` - Entry point. Discovers @inject attrs, resolves function signatures
+  from Go source via `go list -json` and `go/parser`, generates a temp Go module
+  with typed wrappers, builds and execs it.
+- `_template/main.go` - Embedded template for the generated program. Calls
+  `registerAll(j)` defined in the generated `register.go`.
 - `semver/semver.cue` - CUE package binding golang.org/x/mod/semver functions.
 - `sprig/sprig.go` - Go implementations of sprig-compatible functions.
 - `sprig/sprig.cue` - CUE package exposing sprig functions via @inject.
@@ -86,6 +87,7 @@ names without the `command` prefix.
 - Do not set `GONOSUMCHECK` or `GONOSUMDB` environment variables.
 - Injected functions use hidden definitions (e.g. `#semverIsValid`) in CUE.
 - Commit messages: subject line under 50 characters, body explaining the "why."
+- Always use `--no-gpg-sign` when creating commits.
 - Every commit must pass `go test ./...`.
 - Do not add Co-Authored-By trailers to commit messages.
 - Do not edit generated files in `.github/workflows/` directly; edit the CUE
