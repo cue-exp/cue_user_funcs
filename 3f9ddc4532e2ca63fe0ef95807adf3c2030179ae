@@ -1,0 +1,7 @@
+TryBot-Result+1: CUEcueckoo <cueckoo@cuelang.org>
+Code-Review+2: Paul Jolly <paul@myitcv.io>
+Submitted-by: Paul Jolly <paul@myitcv.io>
+Submitted-at: Sat, 07 Mar 2026 17:14:26 +0000
+Reviewed-on: https://cue.gerrithub.io/c/cue-exp/cue_user_funcs/+/1233123
+Project: cue-exp/cue_user_funcs
+Branch: refs/heads/main
