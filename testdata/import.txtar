@@ -3,12 +3,16 @@ env HOME=$WORK/.home
 # Tidy the CUE module to resolve dependencies.
 exec cue mod tidy
 
-# First run: all caches cold.
+# inject.sum should not exist yet.
+! exists cue.mod/inject.sum
+
+# First run: all caches cold. Should create inject.sum.
 exec cue_user_funcs export --debug .
 cmp stdout expected.json
 stderr 'binary cache miss'
 stderr 'shim cache miss'
 stderr 'binary cached'
+exists cue.mod/inject.sum
 
 # Second run: binary cache should hit.
 exec cue_user_funcs export --debug .
@@ -19,6 +23,13 @@ stderr 'binary cache hit'
 exec cue_user_funcs export --debug --shim .
 cmp stdout expected_shim.go
 stderr 'shim cache hit'
+
+# Corrupt inject.sum with a fresh cache: a bad hash should cause
+# go mod tidy to fail with a checksum mismatch.
+cp inject_bad.sum cue.mod/inject.sum
+env HOME=$WORK/.home2
+! exec cue_user_funcs export .
+stderr 'SECURITY ERROR'
 
 -- cue.mod/module.cue --
 module: "test.example"
@@ -137,6 +148,9 @@ func registerAll(j *cuecontext.Injector) {
 		return pkg2.Semver(a0)
 	}, cue.Name("github.com/cue-exp/cue_user_funcs@v0.0.0-20260306200449-5ada224ec191/sprig.Semver")))
 }
+-- inject_bad.sum --
+golang.org/x/mod v0.33.0 h1:BADHASHBADHASHBADHASHBADHASHBADHASHBADHASH00=
+golang.org/x/mod v0.33.0/go.mod h1:BADHASHBADHASHBADHASHBADHASHBADHASHBADHASH00=
 -- expected.json --
 {
     "canonical": "v1.2.3-beta",
