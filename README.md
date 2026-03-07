@@ -3,7 +3,7 @@
 A Go program that emulates `cue export`, extended with user-provided functions.
 It dynamically discovers `@inject` attributes in CUE code, resolves the backing
 Go functions from version-qualified package paths, generates a temporary Go
-module with the right dependencies, builds it, and execs it.
+module with typed wrappers, builds it, and execs it.
 
 This uses CUE's WIP user-provided functions and value injection proposals
 ([#4293](https://github.com/cue-lang/proposal/blob/main/designs/4293-user-functions-and-validators.md),
@@ -14,20 +14,117 @@ via a [fork](https://github.com/cue-exp/cue/tree/user_funcs_etc) of
 ## Usage
 
 ```
-go run . export <directory>
+go run . export [-shim] [-debug] <directory>
 ```
 
-The directory must contain a CUE package with `@extern(inject)` and `@inject`
-attributes. The program:
+Flags:
 
-1. Loads the CUE package and walks transitive imports to discover all `@inject`
-   attributes.
-2. Parses the version-qualified inject names (e.g.
-   `golang.org/x/mod@v0.33.0/semver.IsValid`).
-3. Generates a temporary Go module with the required dependencies and a
-   reflection-based function registration.
-4. Builds and execs the generated binary, which evaluates and exports the CUE
-   as JSON.
+- `-shim` — print the generated Go registration shim to stdout and exit
+  (useful for inspecting or testing the generated code).
+- `-debug` — print cache diagnostic messages to stderr.
+
+The directory must contain a CUE package with `@extern(inject)` and `@inject`
+attributes.
+
+## How it works
+
+The following diagram shows how `cue_user_funcs export` resolves inject
+dependencies and produces JSON output:
+
+```
+                         CUE source files
+                               |
+                               v
+                  ┌────────────────────────┐
+                  │  1. Load CUE package   │
+                  │     & walk transitive  │
+                  │     imports            │
+                  └───────────┬────────────┘
+                              |
+                              v
+                  ┌────────────────────────┐
+                  │  2. Collect @inject    │
+                  │     names from files   │
+                  │     with @extern       │
+                  │     (inject)           │
+                  └───────────┬────────────┘
+                              |
+                              v
+                  ┌────────────────────────┐
+                  │  3. Parse inject names │
+                  │     into module,       │
+                  │     version, import    │
+                  │     path, func name    │
+                  └───────────┬────────────┘
+                              |
+                              v
+                  ┌────────────────────────┐
+                  │  4. Check cache        │──── hit ──> exec cached binary
+                  │     (shim + binary)    │
+                  └───────────┬────────────┘
+                          miss |
+                              v
+                  ┌────────────────────────┐
+                  │  5. Create temp Go     │
+                  │     module with        │
+                  │     require directives │
+                  │     for each           │
+                  │     module@version     │
+                  └───────────┬────────────┘
+                              |
+                              v
+                  ┌────────────────────────┐
+                  │  6. go mod tidy        │
+                  │     (downloads         │
+                  │     modules)           │
+                  └───────────┬────────────┘
+                              |
+                              v
+                  ┌────────────────────────┐
+                  │  7. Load Go packages   │
+                  │     via go/packages,   │
+                  │     extract function   │
+                  │     signatures from    │
+                  │     parsed AST         │
+                  └───────────┬────────────┘
+                              |
+                              v
+                  ┌────────────────────────┐
+                  │  8. Generate register  │
+                  │     .go shim with      │
+                  │     typed PureFunc     │
+                  │     wrappers           │
+                  └───────────┬────────────┘
+                              |
+                              v
+                  ┌────────────────────────┐
+                  │  9. go build           │
+                  │     (compile the       │
+                  │     generated module)  │
+                  └───────────┬────────────┘
+                              |
+                              v
+                  ┌────────────────────────┐
+                  │ 10. Cache binary,      │
+                  │     then syscall.Exec  │
+                  │     the built program  │
+                  └───────────┬────────────┘
+                              |
+                              v
+                         JSON output
+```
+
+### Caching
+
+A two-level content-addressed cache (using
+`github.com/rogpeppe/go-internal/cache`) avoids redundant work:
+
+- **Shim cache** — keyed on the sorted set of inject names. If the same set of
+  functions is requested again, the generated `register.go` is served from
+  cache without downloading modules or parsing Go source.
+- **Binary cache** — keyed on the shim content, Go version, GOOS/GOARCH, and
+  the embedded template. If the compiled binary is already cached, it is
+  exec'd directly, skipping all code generation and compilation.
 
 ## CUE packages
 
@@ -57,7 +154,7 @@ functions: `#Untitle`, `#Substr`, `#Nospace`, `#Trunc`, `#Abbrev`,
 ```cue
 import "github.com/cue-exp/cue_user_funcs/sprig"
 
-title: sprig.#Title("hello world")
+snake: sprig.#Snakecase("HelloWorld")
 ```
 
 ## Inject name format
@@ -70,7 +167,7 @@ module@version/subpath.FuncName
 
 For example:
 - `golang.org/x/mod@v0.33.0/semver.IsValid`
-- `github.com/cue-exp/cue_user_funcs@v0.0.0-20260306160924-85e7d61cf247/sprig.Title`
+- `github.com/cue-exp/cue_user_funcs@v0.0.0-20260306200449-5ada224ec191/sprig.Snakecase`
 
 ## CUE package setup
 
@@ -105,3 +202,13 @@ CI configuration lives in `internal/ci/` as CUE source of truth, generating
 ```
 go generate ./internal/ci/...
 ```
+
+## Future work
+
+- **go.sum-based dependency locking.** Currently, the generated temporary Go
+  module downloads dependencies based solely on the module@version specified in
+  inject names. In the future, the consuming CUE module could maintain a
+  `go.sum`-style lock file that pins the expected cryptographic hashes of
+  downloaded Go modules. This would provide stronger guarantees that the Go code
+  being injected has not been tampered with or substituted, bringing the safety
+  model closer to what Go itself provides for its own dependencies.
