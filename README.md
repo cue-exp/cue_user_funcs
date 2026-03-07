@@ -128,34 +128,70 @@ A two-level content-addressed cache (using
 
 ## CUE packages
 
-This module is also a CUE module (`github.com/cue-exp/cue_user_funcs`)
-that provides reusable CUE packages:
+This repository is both a Go module and a CUE module
+(`github.com/cue-exp/cue_user_funcs`). It provides two reusable CUE packages
+that consumers can import to get pre-wired `@inject` bindings without having to
+write `@extern(inject)` / `@inject` attributes themselves.
 
-### semver
-
-Binds [`golang.org/x/mod/semver`](https://pkg.go.dev/golang.org/x/mod/semver)
-functions: `#IsValid`, `#Compare`, `#Canonical`, `#Major`, `#MajorMinor`,
-`#Prerelease`, `#Build`.
+A consuming CUE module declares this module as a dependency in
+`cue.mod/module.cue` and imports the packages:
 
 ```cue
-import "github.com/cue-exp/cue_user_funcs/semver"
+package example
+
+import (
+    "github.com/cue-exp/cue_user_funcs/semver"
+    "github.com/cue-exp/cue_user_funcs/sprig"
+)
 
 valid: semver.#IsValid("v1.2.3")
+snake: sprig.#Snakecase("HelloWorld")
 ```
 
-### sprig
+### `semver` — pure CUE package
 
-Provides [sprig](https://masterminds.github.io/sprig/)-compatible string
-functions: `#Untitle`, `#Substr`, `#Nospace`, `#Trunc`, `#Abbrev`,
+The `semver` package is a single CUE file (`semver/semver.cue`) that binds
+directly to functions in [`golang.org/x/mod/semver`](https://pkg.go.dev/golang.org/x/mod/semver),
+a third-party Go module. No Go code lives in this repository for semver — the
+`@inject` attributes reference the upstream Go package by its module path and
+version:
+
+```cue
+#IsValid: _ @inject(name="golang.org/x/mod@v0.33.0/semver.IsValid")
+```
+
+Functions: `#IsValid`, `#Compare`, `#Canonical`, `#Major`, `#MajorMinor`,
+`#Prerelease`, `#Build`.
+
+### `sprig` — Go+CUE package
+
+The `sprig` package contains both Go source (`sprig/sprig.go`) and a CUE
+binding file (`sprig/sprig.cue`). The Go file implements
+[sprig](https://masterminds.github.io/sprig/)-compatible string and semver
+functions using libraries like `github.com/Masterminds/goutils`,
+`github.com/Masterminds/semver/v3`, and `github.com/huandu/xstrings`. The CUE
+file then binds to these Go functions via `@inject` attributes.
+
+Because the `@inject` names must reference a *published* Go module version, the
+CUE file contains a pinned pseudo-version of this module itself:
+
+```cue
+#Snakecase: _ @inject(name="github.com/cue-exp/cue_user_funcs@v0.0.0-20260306200449-5ada224ec191/sprig.Snakecase")
+```
+
+This creates a two-step publish ordering:
+
+1. **Publish the Go module first** — push a commit containing the Go code in
+   `sprig/sprig.go` so that a pseudo-version (or tag) becomes available on the
+   Go module proxy.
+2. **Update and publish the CUE module** — update `sprig/sprig.cue` to
+   reference the newly published Go version in the `@inject` names, then tag
+   and publish the CUE module.
+
+Functions: `#Untitle`, `#Substr`, `#Nospace`, `#Trunc`, `#Abbrev`,
 `#Abbrevboth`, `#Initials`, `#Wrap`, `#WrapWith`, `#Indent`, `#Nindent`,
 `#Snakecase`, `#Camelcase`, `#Kebabcase`, `#Swapcase`, `#Plural`,
 `#SemverCompare`, `#Semver`.
-
-```cue
-import "github.com/cue-exp/cue_user_funcs/sprig"
-
-snake: sprig.#Snakecase("HelloWorld")
-```
 
 ## Inject name format
 
