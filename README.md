@@ -13,6 +13,8 @@ via a [fork](https://github.com/cue-exp/cue/tree/user_funcs_etc) of
 
 ## Usage
 
+### `export`
+
 ```
 go run . export [-shim] [-debug] <directory>
 ```
@@ -25,6 +27,23 @@ Flags:
 
 The directory must contain a CUE package with `@extern(inject)` and `@inject`
 attributes.
+
+### `mod tidy`
+
+```
+go run . mod tidy
+```
+
+Runs `cue mod tidy`, then walks all CUE packages in the module to discover
+`@inject` attributes, creates a temporary Go module with the required
+dependencies, runs `go mod tidy`, and writes the resulting `go.mod` and `go.sum`
+back to `cue.mod/inject.mod` and `cue.mod/inject.sum`.
+
+**Note:** The module walk uses `cue/load` with the `./...` pattern rather than
+the direct filesystem walk that `cue mod tidy` itself uses (via
+`modimports.AllModuleFiles`). For this proof of concept both approaches discover
+the same `@inject` attributes, since we only care about loadable CUE packages
+and their transitive imports.
 
 ## How it works
 
