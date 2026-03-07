@@ -203,12 +203,19 @@ CI configuration lives in `internal/ci/` as CUE source of truth, generating
 go generate ./internal/ci/...
 ```
 
-## Future work
+## Checksum verification (`inject.sum`)
 
-- **go.sum-based dependency locking.** Currently, the generated temporary Go
-  module downloads dependencies based solely on the module@version specified in
-  inject names. In the future, the consuming CUE module could maintain a
-  `go.sum`-style lock file that pins the expected cryptographic hashes of
-  downloaded Go modules. This would provide stronger guarantees that the Go code
-  being injected has not been tampered with or substituted, bringing the safety
-  model closer to what Go itself provides for its own dependencies.
+When running inside a CUE module, `cue_user_funcs` maintains a
+`cue.mod/inject.sum` file that pins the cryptographic hashes of downloaded Go
+modules — the same `h1:` hashes that Go uses in `go.sum`.
+
+On the first run, `inject.sum` is created automatically. On subsequent runs,
+the file is copied into the temporary build directory as `go.sum` before
+`go mod tidy` and `go build`, so the Go toolchain itself verifies that
+downloaded modules match the recorded hashes. If a hash doesn't match, the
+build fails with Go's standard `SECURITY ERROR`.
+
+After a successful build, the resulting `go.sum` is written back to
+`cue.mod/inject.sum`, capturing any new or updated entries. This file should be
+checked into version control so that reviewers can see when dependency hashes
+change.

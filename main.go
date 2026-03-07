@@ -90,6 +90,17 @@ func run() error {
 		return err
 	}
 
+	// Read inject.sum from the CUE module if it exists.
+	var injectSumPath string
+	var injectSumData []byte
+	if inst.Root != "" {
+		injectSumPath = filepath.Join(inst.Root, "cue.mod", "inject.sum")
+		data, err := os.ReadFile(injectSumPath)
+		if err == nil {
+			injectSumData = data
+		}
+	}
+
 	// Open the artifact cache.
 	c, err := openCache()
 	if err != nil {
@@ -108,7 +119,7 @@ func run() error {
 			return err
 		}
 		debugf("shim cache miss")
-		regData, err := resolveRegisterData(funcs)
+		regData, err := resolveRegisterData(funcs, injectSumData)
 		if err != nil {
 			return err
 		}
@@ -136,7 +147,7 @@ func run() error {
 	shimBytes, _, shimErr := c.GetBytes(shimID)
 	if shimErr != nil {
 		debugf("shim cache miss")
-		regData, err := resolveRegisterData(funcs)
+		regData, err := resolveRegisterData(funcs, injectSumData)
 		if err != nil {
 			return err
 		}
@@ -176,6 +187,13 @@ func run() error {
 		return err
 	}
 
+	// Seed go.sum from inject.sum so the Go toolchain verifies checksums.
+	if len(injectSumData) > 0 {
+		if err := os.WriteFile(filepath.Join(tmpDir, "go.sum"), injectSumData, 0o666); err != nil {
+			return err
+		}
+	}
+
 	// Run go mod tidy.
 	if err := goCmd(tmpDir, "mod", "tidy"); err != nil {
 		return fmt.Errorf("go mod tidy: %w", err)
@@ -185,6 +203,18 @@ func run() error {
 	binPath := filepath.Join(tmpDir, "cue-user-funcs")
 	if err := goCmd(tmpDir, "build", "-o", binPath, "."); err != nil {
 		return fmt.Errorf("go build: %w", err)
+	}
+
+	// Update inject.sum from the build's go.sum, but only if the cue.mod
+	// directory exists (i.e. we're inside a CUE module).
+	if injectSumPath != "" {
+		if goSum, err := os.ReadFile(filepath.Join(tmpDir, "go.sum")); err == nil {
+			if _, err := os.Stat(filepath.Dir(injectSumPath)); err == nil {
+				if err := os.WriteFile(injectSumPath, goSum, 0o666); err != nil {
+					return fmt.Errorf("updating inject.sum: %w", err)
+				}
+			}
+		}
 	}
 
 	// Cache the built binary.
@@ -243,7 +273,9 @@ func binaryActionID(shimID cache.ActionID) cache.ActionID {
 
 // resolveRegisterData downloads the referenced Go modules, parses function
 // signatures, and returns the data needed to generate register.go.
-func resolveRegisterData(funcs []funcRef) (*registerData, error) {
+// If injectSumData is non-nil, it is written as go.sum so the Go toolchain
+// verifies downloaded module checksums.
+func resolveRegisterData(funcs []funcRef, injectSumData []byte) (*registerData, error) {
 	// Create a temporary directory for module resolution.
 	tmpDir, err := os.MkdirTemp("", "cue-user-funcs-resolve-*")
 	if err != nil {
@@ -258,6 +290,12 @@ func resolveRegisterData(funcs []funcRef) (*registerData, error) {
 	}
 	if err := writeStubFile(tmpDir, funcs); err != nil {
 		return nil, err
+	}
+	// Seed go.sum from inject.sum so the Go toolchain verifies checksums.
+	if len(injectSumData) > 0 {
+		if err := os.WriteFile(filepath.Join(tmpDir, "go.sum"), injectSumData, 0o666); err != nil {
+			return nil, err
+		}
 	}
 	if err := goCmd(tmpDir, "mod", "tidy"); err != nil {
 		return nil, fmt.Errorf("go mod tidy: %w", err)
