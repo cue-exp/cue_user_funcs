@@ -68,12 +68,13 @@ func runExport() error {
 	exportFlags := flag.NewFlagSet("export", flag.ContinueOnError)
 	showShim := exportFlags.Bool("shim", false, "print the generated Go shim and exit")
 	debugFlag := exportFlags.Bool("debug", false, "print cache diagnostics to stderr")
+	testFlag := exportFlags.Bool("test", false, "include @if(test) guarded CUE files")
 	if err := exportFlags.Parse(os.Args[2:]); err != nil {
 		return err
 	}
 	debug = *debugFlag
 	if exportFlags.NArg() == 0 {
-		return fmt.Errorf("usage: %s export [-shim] [-debug] <directory>", os.Args[0])
+		return fmt.Errorf("usage: %s export [-shim] [-debug] [-test] <directory>", os.Args[0])
 	}
 	dir := exportFlags.Arg(0)
 
@@ -85,6 +86,10 @@ func runExport() error {
 
 	// Load the CUE package to discover @inject attributes.
 	cfg := &load.Config{Dir: absDir}
+	if *testFlag {
+		cfg.Tags = append(cfg.Tags, "test")
+		cfg.Tests = true
+	}
 	instances := load.Instances([]string{"."}, cfg)
 	if len(instances) == 0 {
 		return fmt.Errorf("no instances found in %s", dir)
@@ -103,6 +108,7 @@ func runExport() error {
 	if err != nil {
 		return err
 	}
+	funcs = filterTestOverrides(funcs)
 
 	// Require a CUE module context.
 	cueModDir := filepath.Join(inst.Root, "cue.mod")
@@ -111,8 +117,13 @@ func runExport() error {
 	}
 
 	// Read inject.mod and inject.sum from the CUE module.
-	injectModData, _ := os.ReadFile(filepath.Join(cueModDir, "inject.mod"))
-	injectSumData, _ := os.ReadFile(filepath.Join(cueModDir, "inject.sum"))
+	// In --test mode, skip these: @test funcs generate their own go.mod
+	// with local replace directives, so inject.mod/inject.sum don't apply.
+	var injectModData, injectSumData []byte
+	if !*testFlag {
+		injectModData, _ = os.ReadFile(filepath.Join(cueModDir, "inject.mod"))
+		injectSumData, _ = os.ReadFile(filepath.Join(cueModDir, "inject.sum"))
+	}
 
 	// Open the artifact cache.
 	c, err := openCache()
@@ -132,7 +143,7 @@ func runExport() error {
 			return err
 		}
 		debugf("shim cache miss")
-		regData, err := resolveRegisterData(funcs, injectSumData)
+		regData, err := resolveRegisterData(funcs, injectSumData, inst.Root)
 		if err != nil {
 			return err
 		}
@@ -150,7 +161,11 @@ func runExport() error {
 		// The cache stores files without execute permission; fix before exec.
 		if err := os.Chmod(binFile, 0o555); err == nil {
 			debugf("binary cache hit")
-			execArgs := []string{binFile, "export", absDir}
+			execArgs := []string{binFile, "export"}
+			if *testFlag {
+				execArgs = append(execArgs, "--test")
+			}
+			execArgs = append(execArgs, absDir)
 			return syscall.Exec(binFile, execArgs, os.Environ())
 		}
 	}
@@ -160,7 +175,7 @@ func runExport() error {
 	shimBytes, _, shimErr := c.GetBytes(shimID)
 	if shimErr != nil {
 		debugf("shim cache miss")
-		regData, err := resolveRegisterData(funcs, injectSumData)
+		regData, err := resolveRegisterData(funcs, injectSumData, inst.Root)
 		if err != nil {
 			return err
 		}
@@ -197,15 +212,43 @@ func runExport() error {
 
 	// Use inject.mod/inject.sum from the CUE module.
 	// These are produced by "mod tidy" and must exist before export can build.
-	if len(injectModData) == 0 {
+	// For @test funcs, inject.mod may not exist yet (the whole point of @test
+	// is to avoid the publish-first requirement), so we generate a go.mod.
+	hasTestFuncs := hasTest(funcs)
+	if len(injectModData) == 0 && !hasTestFuncs {
 		return fmt.Errorf("cue.mod/inject.mod not found; run '%s mod tidy' first", os.Args[0])
 	}
-	if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), injectModData, 0o666); err != nil {
-		return err
+	if len(injectModData) > 0 {
+		if err := os.WriteFile(filepath.Join(tmpDir, "go.mod"), injectModData, 0o666); err != nil {
+			return err
+		}
+	} else {
+		// No inject.mod: generate a minimal go.mod for @test-only usage.
+		if err := writeGoMod(tmpDir, funcs, inst.Root); err != nil {
+			return err
+		}
 	}
 	if len(injectSumData) > 0 {
 		if err := os.WriteFile(filepath.Join(tmpDir, "go.sum"), injectSumData, 0o666); err != nil {
 			return err
+		}
+	}
+
+	// Add replace directives for @test modules to the go.mod.
+	if hasTestFuncs {
+		if err := addTestReplaces(tmpDir, funcs, inst.Root); err != nil {
+			return err
+		}
+	}
+
+	// If no inject.mod was available, we need to write a stub file and
+	// run go mod tidy to resolve dependencies.
+	if len(injectModData) == 0 {
+		if err := writeStubFile(tmpDir, funcs); err != nil {
+			return err
+		}
+		if err := goCmd(tmpDir, "mod", "tidy"); err != nil {
+			return fmt.Errorf("go mod tidy: %w", err)
 		}
 	}
 
@@ -217,7 +260,9 @@ func runExport() error {
 
 	// Update inject.mod and inject.sum from the build's go.mod and go.sum,
 	// but only if the cue.mod directory exists (i.e. we're inside a CUE module).
-	if cueModDir != "" {
+	// Skip in --test mode: the generated go.mod contains local replace
+	// directives that must not pollute the production inject.mod.
+	if !*testFlag && cueModDir != "" {
 		if _, err := os.Stat(cueModDir); err == nil {
 			if goMod, err := os.ReadFile(filepath.Join(tmpDir, "go.mod")); err == nil {
 				if err := os.WriteFile(filepath.Join(cueModDir, "inject.mod"), goMod, 0o666); err != nil {
@@ -240,7 +285,11 @@ func runExport() error {
 	}
 
 	// Exec the built binary, replacing the current process.
-	execArgs := []string{binPath, "export", absDir}
+	execArgs := []string{binPath, "export"}
+	if *testFlag {
+		execArgs = append(execArgs, "--test")
+	}
+	execArgs = append(execArgs, absDir)
 	return syscall.Exec(binPath, execArgs, os.Environ())
 }
 
@@ -306,6 +355,7 @@ func runModTidy() error {
 	if err != nil {
 		return err
 	}
+	funcs = filterTestOverrides(funcs)
 
 	// Create a temporary directory for module resolution.
 	tmpDir, err := os.MkdirTemp("", "cue-user-funcs-tidy-*")
@@ -317,7 +367,7 @@ func runModTidy() error {
 	// Write go.mod, the template main.go (so go mod tidy captures
 	// cuelang.org/go deps), and a stub file with blank imports for
 	// the inject function packages.
-	if err := writeGoMod(tmpDir, funcs); err != nil {
+	if err := writeGoMod(tmpDir, funcs, modRoot); err != nil {
 		return err
 	}
 	tmplMain, err := templateFS.ReadFile("_template/main.go")
@@ -411,8 +461,9 @@ func binaryActionID(shimID cache.ActionID) cache.ActionID {
 // resolveRegisterData downloads the referenced Go modules, parses function
 // signatures, and returns the data needed to generate register.go.
 // If injectSumData is non-nil, it is written as go.sum so the Go toolchain
-// verifies downloaded module checksums.
-func resolveRegisterData(funcs []funcRef, injectSumData []byte) (*registerData, error) {
+// verifies downloaded module checksums. localModRoot is the CUE module root
+// directory, used to add replace directives for @test inject names.
+func resolveRegisterData(funcs []funcRef, injectSumData []byte, localModRoot string) (*registerData, error) {
 	// Create a temporary directory for module resolution.
 	tmpDir, err := os.MkdirTemp("", "cue-user-funcs-resolve-*")
 	if err != nil {
@@ -422,7 +473,7 @@ func resolveRegisterData(funcs []funcRef, injectSumData []byte) (*registerData, 
 
 	// Write go.mod and a stub file with blank imports so go mod tidy
 	// downloads the function packages.
-	if err := writeGoMod(tmpDir, funcs); err != nil {
+	if err := writeGoMod(tmpDir, funcs, localModRoot); err != nil {
 		return nil, err
 	}
 	if err := writeStubFile(tmpDir, funcs); err != nil {
@@ -533,16 +584,22 @@ type funcRef struct {
 	InjectName string
 	// Module is the Go module path, e.g. "golang.org/x/mod".
 	Module string
-	// Version is the module version, e.g. "v0.33.0".
+	// Version is the module version, e.g. "v0.33.0". Empty for stdlib.
 	Version string
 	// ImportPath is the full Go import path, e.g. "golang.org/x/mod/semver".
 	ImportPath string
 	// FuncName is the function name, e.g. "IsValid".
 	FuncName string
+	// IsTest is true when the version is "test", indicating a local replace.
+	IsTest bool
 }
 
 // injectNameRe matches "module@version/subpath.Func" or "module@version.Func" (no subpath).
-var injectNameRe = regexp.MustCompile(`^(.+)@(v[^/]+?)(?:/(.+))?\.([A-Z]\w*)$`)
+// The version may be a semver like "v0.33.0" or the literal "test".
+var injectNameRe = regexp.MustCompile(`^(.+)@(v[^/]+?|test)(?:/(.+))?\.([A-Z]\w*)$`)
+
+// stdlibInjectRe matches "stdlib/path.Func" — no version for Go standard library packages.
+var stdlibInjectRe = regexp.MustCompile(`^([a-z][a-z0-9_/]*)\.([A-Z]\w*)$`)
 
 // isStdlib reports whether the given module path refers to a Go standard
 // library package. By convention, external module paths contain a dot in
@@ -556,32 +613,77 @@ func isStdlib(module string) bool {
 func parseInjectNames(names []string) ([]funcRef, error) {
 	var funcs []funcRef
 	for _, name := range names {
-		m := injectNameRe.FindStringSubmatch(name)
-		if m == nil {
-			return nil, fmt.Errorf("cannot parse inject name %q", name)
-		}
-		module := m[1]
-		version := m[2]
-		subpath := m[3]
-		funcName := m[4]
+		// Try versioned format first: module@version/subpath.Func
+		if m := injectNameRe.FindStringSubmatch(name); m != nil {
+			module := m[1]
+			version := m[2]
+			subpath := m[3]
+			funcName := m[4]
 
-		importPath := module
-		if subpath != "" {
-			importPath = module + "/" + subpath
+			importPath := module
+			if subpath != "" {
+				importPath = module + "/" + subpath
+			}
+
+			funcs = append(funcs, funcRef{
+				InjectName: name,
+				Module:     module,
+				Version:    version,
+				ImportPath: importPath,
+				FuncName:   funcName,
+				IsTest:     version == "test",
+			})
+			continue
 		}
 
-		funcs = append(funcs, funcRef{
-			InjectName: name,
-			Module:     module,
-			Version:    version,
-			ImportPath: importPath,
-			FuncName:   funcName,
-		})
+		// Try stdlib format: importpath.Func (no version).
+		if m := stdlibInjectRe.FindStringSubmatch(name); m != nil {
+			importPath := m[1]
+			funcName := m[2]
+			if !isStdlib(importPath) {
+				return nil, fmt.Errorf("version-less inject name %q is not a stdlib package", name)
+			}
+			funcs = append(funcs, funcRef{
+				InjectName: name,
+				Module:     importPath,
+				Version:    "",
+				ImportPath: importPath,
+				FuncName:   funcName,
+			})
+			continue
+		}
+
+		return nil, fmt.Errorf("cannot parse inject name %q", name)
 	}
 	return funcs, nil
 }
 
-func writeGoMod(tmpDir string, funcs []funcRef) error {
+// filterTestOverrides removes non-test funcRefs when a @test version exists
+// for the same function (same ImportPath + FuncName). The @test version takes
+// precedence, and the non-test version is not registered.
+func filterTestOverrides(funcs []funcRef) []funcRef {
+	// Collect keys that have @test versions.
+	testKeys := map[string]bool{}
+	for _, f := range funcs {
+		if f.IsTest {
+			testKeys[f.ImportPath+"."+f.FuncName] = true
+		}
+	}
+	if len(testKeys) == 0 {
+		return funcs
+	}
+	var filtered []funcRef
+	for _, f := range funcs {
+		key := f.ImportPath + "." + f.FuncName
+		if !f.IsTest && testKeys[key] {
+			continue // skip non-test version; @test takes precedence
+		}
+		filtered = append(filtered, f)
+	}
+	return filtered
+}
+
+func writeGoMod(tmpDir string, funcs []funcRef, localModRoot string) error {
 	goMod := `module _cue_user_funcs_generated
 
 go 1.25.0
@@ -596,9 +698,27 @@ replace cuelang.org/go v0.16.0 => github.com/cue-exp/cue v0.0.0-20260306105357-d
 
 	// Add a require for each unique module@version.
 	// Skip standard library packages which don't need a require directive.
+	// For @test versions, use a dummy version and add a replace directive.
 	seen := map[string]bool{}
 	for _, f := range funcs {
 		if isStdlib(f.Module) {
+			continue
+		}
+		if f.IsTest {
+			// Use a dummy version for the require, and redirect to local source.
+			dummyVersion := "v0.0.0"
+			key := f.Module + "@" + dummyVersion
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			if err := goCmd(tmpDir, "mod", "edit", "-require="+key); err != nil {
+				return fmt.Errorf("go mod edit -require=%s: %w", key, err)
+			}
+			replace := f.Module + "@" + dummyVersion + "=" + localModRoot
+			if err := goCmd(tmpDir, "mod", "edit", "-replace="+replace); err != nil {
+				return fmt.Errorf("go mod edit -replace=%s: %w", replace, err)
+			}
 			continue
 		}
 		key := f.Module + "@" + f.Version
@@ -899,6 +1019,38 @@ func buildRegisterData(funcs []funcRef, sigs map[string]*funcSig) (*registerData
 		Imports: imports,
 		Funcs:   entries,
 	}, nil
+}
+
+// hasTest reports whether any funcRef has IsTest set.
+func hasTest(funcs []funcRef) bool {
+	for _, f := range funcs {
+		if f.IsTest {
+			return true
+		}
+	}
+	return false
+}
+
+// addTestReplaces adds replace directives to the go.mod in tmpDir for each
+// unique @test module, pointing to the local module root directory.
+func addTestReplaces(tmpDir string, funcs []funcRef, localModRoot string) error {
+	seen := map[string]bool{}
+	for _, f := range funcs {
+		if !f.IsTest || seen[f.Module] {
+			continue
+		}
+		seen[f.Module] = true
+		// Add a require if not already present, then replace.
+		dummyVersion := "v0.0.0"
+		if err := goCmd(tmpDir, "mod", "edit", "-require="+f.Module+"@"+dummyVersion); err != nil {
+			return fmt.Errorf("go mod edit -require for @test: %w", err)
+		}
+		replace := f.Module + "@" + dummyVersion + "=" + localModRoot
+		if err := goCmd(tmpDir, "mod", "edit", "-replace="+replace); err != nil {
+			return fmt.Errorf("go mod edit -replace for @test: %w", err)
+		}
+	}
+	return nil
 }
 
 func goCmd(dir string, args ...string) error {
