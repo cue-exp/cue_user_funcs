@@ -16,7 +16,7 @@ language: {
 
 package example
 
-#Parse: _ @inject(name="net/url@v0.Parse")
+#Parse: _ @inject(name="net/url.Parse")
 
 parsed: #Parse("https://example.com:8080/path?q=1&r=2#frag")
 -- expected_shim.go --
@@ -29,9 +29,9 @@ import (
 )
 
 func registerAll(j *cuecontext.Injector) {
-	j.Register("net/url@v0.Parse", cue.PureFunc1(func(a0 string) (*pkg1.URL, error) {
+	j.Register("net/url.Parse", cue.PureFunc1(func(a0 string) (*pkg1.URL, error) {
 		return pkg1.Parse(a0)
-	}, cue.Name("net/url@v0.Parse")))
+	}, cue.Name("net/url.Parse")))
 }
 -- expected.json --
 {
