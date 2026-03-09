@@ -2,4 +2,4 @@
 
 package url
 
-#Parse: _ @inject(name="net/url@v0.Parse")
+#Parse: _ @inject(name="net/url.Parse")
