@@ -16,7 +16,7 @@ via a [fork](https://github.com/cue-exp/cue/tree/user_funcs_etc) of
 ### `export`
 
 ```
-go run . export [-shim] [-debug] <directory>
+go run . export [-shim] [-debug] [-test] <directory>
 ```
 
 Flags:
@@ -24,6 +24,9 @@ Flags:
 - `-shim` — print the generated Go registration shim to stdout and exit
   (useful for inspecting or testing the generated code).
 - `-debug` — print cache diagnostic messages to stderr.
+- `-test` — include `@if(test)` guarded CUE files and `_test.cue` files in
+  the load. `@test` versioned inject names resolve via local replace
+  directives (see [Local development with `@test`](#local-development-with-test)).
 
 The directory must contain a CUE package with `@extern(inject)` and `@inject`
 attributes.
@@ -163,11 +166,13 @@ import (
     "github.com/cue-exp/cue_user_funcs/semver"
     "github.com/cue-exp/cue_user_funcs/sprig"
     "github.com/cue-exp/cue_user_funcs/net/url"
+    "github.com/cue-exp/cue_user_funcs/text/template"
 )
 
-valid:  semver.#IsValid("v1.2.3")
-snake:  sprig.#Snakecase("HelloWorld")
-parsed: url.#Parse("https://example.com/path?q=1")
+valid:   semver.#IsValid("v1.2.3")
+snake:   sprig.#Snakecase("HelloWorld")
+parsed:  url.#Parse("https://example.com/path?q=1")
+nonZero: template.#NonZero("hello")
 ```
 
 There are three kinds of CUE packages in this module, distinguished by where
@@ -190,14 +195,15 @@ Functions: `#IsValid`, `#Compare`, `#Canonical`, `#Major`, `#MajorMinor`,
 
 ### `net/url` — pure CUE package (stdlib)
 
-The `net/url` package is a single CUE file (`net/url/url.cue`) that binds
-directly to Go's standard library [`net/url.Parse`](https://pkg.go.dev/net/url#Parse).
-Like `semver`, no Go code is needed — but unlike third-party modules, stdlib
-packages don't require a `go mod edit -require` directive. The inject name uses
-a placeholder version:
+The `net/url` package is a CUE binding file (`net/url/url.cue`) and a test file
+(`net/url/url_test.cue`) that bind directly to Go's standard library
+[`net/url.Parse`](https://pkg.go.dev/net/url#Parse). Like `semver`, no Go code
+is needed — but unlike third-party modules, stdlib
+packages don't require a `go mod edit -require` directive. The inject name
+omits the version entirely:
 
 ```cue
-#Parse: _ @inject(name="net/url@v0.Parse")
+#Parse: _ @inject(name="net/url.Parse")
 ```
 
 Standard library packages are detected by the absence of a dot in the first
@@ -208,12 +214,13 @@ Functions: `#Parse`.
 
 ### `text/template` — Go+CUE package
 
-The `text/template` package contains both Go source
-(`text/template/template.go`) and a CUE binding file
-(`text/template/template.cue`). The Go file implements a `NonZero` function
-that follows the Go standard library's `text/template` documentation for
-`{{if}}` actions: empty values are `false`, `0`, any nil pointer or interface
-value, any array/slice/map/string of length zero, and any zero-value struct.
+The `text/template` package contains Go source (`text/template/template.go`),
+a CUE binding file (`text/template/template.cue`), and a test file
+(`text/template/template_test.cue`). The Go file implements a `NonZero`
+function that follows the Go standard library's `text/template` documentation
+for `{{if}}` actions: empty values are `false`, `0`, any nil pointer or
+interface value, any array/slice/map/string of length zero, and any zero-value
+struct.
 
 This differs from `text/template.IsTrue` which treats all structs as true
 regardless of whether they are zero-valued
@@ -223,10 +230,10 @@ Functions: `#NonZero`.
 
 ### `sprig` — Go+CUE package
 
-The `sprig` package contains both Go source (`sprig/sprig.go`) and a CUE
-binding file (`sprig/sprig.cue`). The Go file implements
-[sprig](https://masterminds.github.io/sprig/)-compatible string and semver
-functions using libraries like `github.com/Masterminds/goutils`,
+The `sprig` package contains Go source (`sprig/sprig.go`), a CUE binding file
+(`sprig/sprig.cue`), and a test file (`sprig/sprig_test.cue`). The Go file
+implements [sprig](https://masterminds.github.io/sprig/)-compatible string and
+semver functions using libraries like `github.com/Masterminds/goutils`,
 `github.com/Masterminds/semver/v3`, and `github.com/huandu/xstrings`. The CUE
 file then binds to these Go functions via `@inject` attributes.
 
@@ -237,29 +244,36 @@ CUE file contains a pinned pseudo-version of this module itself:
 #Snakecase: _ @inject(name="github.com/cue-exp/cue_user_funcs@v0.0.0-20260306200449-5ada224ec191/sprig.Snakecase")
 ```
 
-This creates a multi-commit publish ordering that applies to any Go+CUE package
-in this module (currently `sprig` and `text/template`):
-
-1. **Commit 1: Go code + CUE binding** — push a commit containing the Go
-   source and the CUE binding file. The `@inject` name in the CUE file
-   references a pseudo-version that does not yet contain the new package, so
-   the test for this package cannot be added yet. All existing tests must pass.
-2. **Commit 2: Update version + add test** — after commit 1 is pushed and
-   available on the Go module proxy, update the `@inject` pseudo-version in
-   the CUE binding file to the newly published commit, and add the testscript
-   txtar test. All tests including the new one must pass.
-
-This ordering is necessary because the `@inject` name embeds a specific Go
-module version. The Go code must be fetchable at that version before the
-generated shim can resolve it. Every commit must pass `go test ./...`, so the
-test cannot be added until the Go code is published. Consumers of this CUE
-module then depend on the published CUE module version (e.g. `v0.0.3`) in
-their `cue.mod/module.cue`.
-
 Functions: `#Untitle`, `#Substr`, `#Nospace`, `#Trunc`, `#Abbrev`,
 `#Abbrevboth`, `#Initials`, `#Wrap`, `#WrapWith`, `#Indent`, `#Nindent`,
 `#Snakecase`, `#Camelcase`, `#Kebabcase`, `#Swapcase`, `#Plural`,
 `#SemverCompare`, `#Semver`.
+
+### Go+CUE package publish ordering
+
+Go+CUE packages in this module (currently `sprig` and `text/template`) have a
+publish ordering requirement: the `@inject` name embeds a Go module
+pseudo-version, and the Go code must be fetchable at that version before the
+shim can resolve it.
+
+To develop locally without waiting for publication, each Go+CUE package has a
+`_test.cue` file (e.g. `sprig/sprig_test.cue`) that uses `@test` as the
+version. When `cue_user_funcs export --test` is used, `@test` versions resolve
+via local `replace` directives, bypassing the Go module proxy entirely.
+
+The publish sequence for a new Go+CUE package:
+
+1. **Initial commit** — add the Go source, the CUE binding file (with a
+   placeholder pseudo-version), and the `_test.cue` file. The `_test.cue`
+   file uses `@test` versions and `@if(test)` so it exercises the local code.
+   All tests pass.
+2. **After push** — the Go pseudo-version for commit 1 becomes available on
+   the Go module proxy. Update the CUE binding file's `@inject` pseudo-version
+   to the newly published commit. Add a testscript txtar test that uses the
+   published version. Update `testdata/import.txtar` to include the new
+   package.
+3. **Publish CUE module** — tag and publish a new CUE module version so
+   consumers can depend on it in their `cue.mod/module.cue`.
 
 ## Inject name format
 
@@ -272,7 +286,35 @@ module@version/subpath.FuncName
 For example:
 - `golang.org/x/mod@v0.33.0/semver.IsValid` — third-party module
 - `github.com/cue-exp/cue_user_funcs@v0.0.0-20260306200449-5ada224ec191/sprig.Snakecase` — this module's own Go code
-- `net/url@v0.Parse` — Go standard library (version is a placeholder)
+- `net/url.Parse` — Go standard library (no version needed)
+- `github.com/cue-exp/cue_user_funcs@test/text/template.NonZero` — local test (see below)
+
+The version in the inject name is used as a minimum requirement in the
+generated `go.mod`, but the actual version resolved by `go mod tidy` may be
+higher due to Go's [MVS](https://research.swtch.com/vgo-mvs) algorithm — other
+inject names, transitive dependencies, or any other constraint can cause a
+newer version to be selected.
+
+### `@test` version for local development
+
+The special version `test` resolves against the local module source instead of
+the Go module proxy. When `cue_user_funcs export --test` is used:
+
+1. CUE files guarded with `@if(test)` and files with the `_test.cue` suffix
+   are included in the load.
+2. `@inject` names with `@test` take precedence over non-test versions of the
+   same function — the non-test versions are filtered out entirely.
+3. The generated Go module uses a `replace` directive pointing to the local
+   module root, so it builds against the working tree.
+4. `cue.mod/inject.mod` and `cue.mod/inject.sum` are neither read nor written,
+   avoiding pollution with local replace directives.
+
+Each CUE package has a `_test.cue` file (e.g. `sprig/sprig_test.cue`,
+`text/template/template_test.cue`, `net/url/url_test.cue`) that defines
+inject bindings plus test expressions. Go+CUE packages use `@test` versions;
+stdlib packages like `net/url` use the same inject name since they don't
+require the Go module proxy. This allows local testing in CI before a
+pseudo-version is published.
 
 ## CUE package setup
 

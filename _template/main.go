@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 
@@ -23,10 +24,18 @@ func main1() int {
 }
 
 func run() error {
-	if len(os.Args) < 3 || os.Args[1] != "export" {
-		return fmt.Errorf("usage: %s export <directory>", os.Args[0])
+	if len(os.Args) < 2 || os.Args[1] != "export" {
+		return fmt.Errorf("usage: %s export [--test] <directory>", os.Args[0])
 	}
-	dir := os.Args[2]
+	fs := flag.NewFlagSet("export", flag.ContinueOnError)
+	testFlag := fs.Bool("test", false, "include @if(test) guarded CUE files")
+	if err := fs.Parse(os.Args[2:]); err != nil {
+		return err
+	}
+	if fs.NArg() == 0 {
+		return fmt.Errorf("usage: %s export [--test] <directory>", os.Args[0])
+	}
+	dir := fs.Arg(0)
 
 	j := cuecontext.NewInjector()
 	j.AllowAll()
@@ -34,6 +43,10 @@ func run() error {
 	ctx := cuecontext.New(cuecontext.Inject(j))
 
 	cfg := &load.Config{Dir: dir}
+	if *testFlag {
+		cfg.Tags = append(cfg.Tags, "test")
+		cfg.Tests = true
+	}
 	instances := load.Instances([]string{"."}, cfg)
 	if len(instances) == 0 {
 		return fmt.Errorf("no instances found in %s", dir)

@@ -86,22 +86,38 @@ names without the `command` prefix.
 
 ## Adding Go+CUE packages (self-referencing modules)
 
-When adding a new Go+CUE package to this module (like `sprig` or
-`text/template`), the `@inject` name embeds a Go module pseudo-version. The Go
-code must be fetchable at that version before the test can resolve it. This
-requires a two-commit sequence:
+When adding a new Go+CUE package to this module (like `text/template`), the
+`@inject` name embeds a Go module pseudo-version. Since the Go code must be
+published before the inject name can resolve, use the `@test` mechanism to
+test locally during development:
 
-1. **Commit 1** — Add the Go source, the CUE binding file, and documentation.
-   The CUE file's `@inject` pseudo-version will reference an older commit that
-   doesn't yet contain the new package, but this is acceptable because no test
-   exercises it yet. All existing tests must pass.
-2. **Commit 2** — After commit 1 is pushed and available on the Go module
-   proxy, update the `@inject` pseudo-version in the CUE file to the commit
-   from step 1, and add the testscript txtar test. All tests must pass.
+1. Create the Go source file (e.g. `text/template/template.go`).
+2. Create the CUE binding file (e.g. `text/template/template.cue`) with a
+   placeholder `@inject` pseudo-version. This file is the "production" binding
+   that external consumers will use once a version is published.
+3. Create a `_test.cue` file (e.g. `text/template/template_test.cue`) with:
+   - `@if(test)` file-level attribute so it's only loaded with `--test`
+   - `@inject(name="module@test/path.Func")` using `@test` as the version
+   - Test expressions that exercise the function
+4. Commit and push. Tests pass because the `_test.cue` exercises the local
+   code via `@test`, and the production CUE file's stale pseudo-version is
+   not tested.
 
-Never add the test in the same commit as the Go code — it will fail in CI
-because the Go module proxy won't have the package yet.
+After the commit is pushed and the Go pseudo-version is available:
 
+5. Update the production CUE file's `@inject` pseudo-version to point to the
+   newly published commit. The `_test.cue` file stays unchanged.
+6. Add a testscript txtar file (e.g. `testdata/template.txtar`) that creates
+   a standalone CUE module importing the package via its published version.
+7. Update `testdata/import.txtar` to include usage of the new package.
+8. Publish a new CUE module version so consumers can depend on it.
+
+The `@test` version mechanism: when `cue_user_funcs` sees `@test` as the
+version, it adds a `replace` directive pointing to the local module root.
+When both `@test` and non-test inject names exist for the same function,
+the `@test` version takes precedence and the non-test version is filtered out.
+In `--test` mode, `cue.mod/inject.mod` and `inject.sum` are neither read
+nor written back, avoiding pollution with local replace directives.
 ## Rules
 
 - Do not set `GONOSUMCHECK` or `GONOSUMDB` environment variables.

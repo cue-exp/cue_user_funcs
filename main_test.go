@@ -67,6 +67,12 @@ func TestScript(t *testing.T) {
 		t.Fatalf("parsing go env: %v", err)
 	}
 
+	// Resolve the module root for @test inject names.
+	wd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getting working directory: %v", err)
+	}
+
 	testscript.Run(t, testscript.Params{
 		Dir:           "testdata",
 		UpdateScripts: *update,
@@ -75,6 +81,7 @@ func TestScript(t *testing.T) {
 				"GOTEST_CUE_PATH="+string(cuePath[:len(cuePath)-1]),
 				"GOPATH="+goEnv.GOPATH,
 				"GOCACHE="+goEnv.GOCACHE,
+				"MODULE_ROOT="+wd,
 			)
 			return nil
 		},
