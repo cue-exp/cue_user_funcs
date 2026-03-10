@@ -39,7 +39,7 @@ language: {
 }
 deps: {
 	"github.com/cue-exp/cue_user_funcs@v0": {
-		v: "v0.0.4"
+		v: "v0.0.5"
 	}
 }
 -- example.cue --
@@ -108,9 +108,9 @@ import (
 )
 
 func registerAll(j *cuecontext.Injector) {
-	j.Register("net/url@v0.Parse", cue.PureFunc1(func(a0 string) (*pkg1.URL, error) {
+	j.Register("net/url.Parse", cue.PureFunc1(func(a0 string) (*pkg1.URL, error) {
 		return pkg1.Parse(a0)
-	}, cue.Name("net/url@v0.Parse")))
+	}, cue.Name("net/url.Parse")))
 	j.Register("golang.org/x/mod@v0.33.0/semver.IsValid", cue.PureFunc1(func(a0 string) (bool, error) {
 		return pkg2.IsValid(a0), nil
 	}, cue.Name("golang.org/x/mod@v0.33.0/semver.IsValid")))
@@ -186,9 +186,9 @@ func registerAll(j *cuecontext.Injector) {
 	j.Register("github.com/cue-exp/cue_user_funcs@v0.0.0-20260306200449-5ada224ec191/sprig.Semver", cue.PureFunc1(func(a0 string) (*pkg3.SemverVersion, error) {
 		return pkg3.Semver(a0)
 	}, cue.Name("github.com/cue-exp/cue_user_funcs@v0.0.0-20260306200449-5ada224ec191/sprig.Semver")))
-	j.Register("github.com/cue-exp/cue_user_funcs@v0.0.0-20260306200449-5ada224ec191/text/template.NonZero", cue.PureFunc1(func(a0 any) (bool, error) {
+	j.Register("github.com/cue-exp/cue_user_funcs@v0.0.0-20260309063023-5ad5b30fc367/text/template.NonZero", cue.PureFunc1(func(a0 any) (bool, error) {
 		return pkg4.NonZero(a0), nil
-	}, cue.Name("github.com/cue-exp/cue_user_funcs@v0.0.0-20260306200449-5ada224ec191/text/template.NonZero")))
+	}, cue.Name("github.com/cue-exp/cue_user_funcs@v0.0.0-20260309063023-5ad5b30fc367/text/template.NonZero")))
 }
 -- expected_inject.mod --
 module _cue_user_funcs_generated
